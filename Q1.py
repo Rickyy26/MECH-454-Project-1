@@ -196,7 +196,7 @@ otto_results = [full_cycle(T1_input, P1_input, Vd_m3, 10, k_input, Q_input, n, '
 diesel_results = [full_cycle(T1_input, P1_input, Vd_m3, 20, k_input, Q_input, n, 'diesel') for n in rpm_range]
 
 #plotting
-fig, axs = plt.subplots(2,2,figsize=(12,10))
+fig, axs = plt.subplots(2,2,figsize=(12,10), num="Q4: Performance vs RPM")
 
 #power plot
 axs[0,0].plot(rpm_range, [d['power'] for d in otto_results], 'r', label='Otto')
@@ -254,7 +254,7 @@ T_c, P_c, v_c, W_c_int = isentropic(sts['st1']['T'], sts['st1']['P'], sts['st1']
 T_e, P_e, v_e, W_e_int = isentropic(sts['st3']['T'], sts['st3']['P'], sts['st3']['v'], sts['st4']['v'], Vd_in, r_in, k_in, 100)
 
 cases = [(288.15, 90, 8), (288.15, 100, 8), (300.15, 90, 8), (288.15, 90, 10), (288.15, 90, 12), (310.15, 95, 9)]
-fig_q2, (ax_pv, ax_tv) = plt.subplots(1,2,figsize=(15,6))
+fig_q2, (ax_pv, ax_tv) = plt.subplots(1,2,figsize=(15,6), num="Q2: Isentropic case comparison")
 print(f"\n{'Case':<5} | {'Int W [kJ]':<12} | {'State W [kJ]':<12} | {'Error %':<8}")
 print("-" * 50)
 
@@ -280,7 +280,7 @@ r_range = np.linspace(1.1, 20, 50)
 otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
 diesel_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "diesel") for r in r_range]
 
-fig1, axs = plt.subplots(2, 2, figsize=(12, 10))
+fig1, axs = plt.subplots(2, 2, figsize=(12, 10), num="Q1: Parametric comparison")
 axs[0,0].plot(r_range, [d[2] for d in otto_results], 'r', label="Otto"); axs[0,0].plot(r_range, [d[2] for d in diesel_results], 'b', label="Diesel")
 axs[0,0].set_title("Net Work [kJ]"); axs[0,0].legend(); axs[0,0].grid(True)
 axs[0,1].plot(r_range, [d[3] for d in otto_results], 'r'); axs[0,1].plot(r_range, [d[3] for d in diesel_results], 'b')
@@ -292,7 +292,7 @@ axs[1,1].set_title("T2 [K]"); axs[1,1].legend(); axs[1,1].grid(True)
 plt.tight_layout()
 
 #plotting Q2 (p-v diagram)
-plt.figure(figsize=(10,6))
+plt.figure(figsize=(10,6), num="Q2: P-v diagram")
 plt.plot(v_c, P_c, 'b', label='Compression (Isentropic)')
 plt.plot(v_e, P_e, 'r', label='Expansion (Isentropic)')
 
@@ -308,7 +308,7 @@ plt.xlabel("Specific Volume [m^3/kg]"); plt.ylabel("Pressure [kPa]"); plt.legend
 plt.show()
 
 #plotting Q2 (t-v diagram)
-plt.figure(figsize=(10,6))
+plt.figure(figsize=(10,6), num="Q2: T-v diagram")
 plt.plot(v_c, T_c, 'b', label='Compression (Isentropic)')
 plt.plot(v_e, T_e, 'r', label='Expansion (Isentropic)')
 
@@ -345,7 +345,7 @@ r_range = np.linspace(1.1, 20, 50)
 otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
 diesel_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "diesel") for r in r_range]
 
-fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+fig, axs = plt.subplots(2, 2, figsize=(12, 10), num="Q1: Parametric comparison")
 axs[0,0].plot(r_range, [d[2] for d in otto_results], 'r', label="Otto")
 axs[0,0].plot(r_range, [d[2] for d in diesel_results], 'b', label="Diesel")
 axs[0,0].set_title("Net Work [kJ]"); axs[0,0].legend()
