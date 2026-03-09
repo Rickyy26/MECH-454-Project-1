@@ -1,5 +1,28 @@
 import matplotlib.pyplot as plt
 import numpy as np
+from scipy.integrate import odeint
+
+L_rod = 0.15 #Connection rod length assumption [m]
+a_crank = 0.045 # crank radius assumption [m]
+
+def crank(theta, Vd, r, L, a):
+    R=L/a
+    V_c = Vd/(r-1)
+
+    term1 = 0.5*(r-1)
+    term2 = R + 1 - np.cos(theta) - np.sqrt(R**2 - np.sin(theta)**2)
+    V = V_c * (1 + term1 * term2)
+
+    dV_dtheta = V_c * term1 * (np.sin(theta) + (np.sin(theta)*np.cos(theta))/np.sqrt(R**2 - np.sin(theta)**2))
+    return V, dV_dtheta
+
+def engine_ode(T, theta, m, Vd, r, k, R_gas, L, a, dQ_dtheta):
+    cv = R_gas/(k-1)
+    V, dV_dtheta = crank(theta, Vd, r, L, a)
+    P = (m * R_gas * T)/V
+
+    dT_dtheta = (1/(m * cv)) * (dQ_dtheta - P * dV_dtheta)
+    return dT_dtheta
 
 def parameterInputs ():
     print ("Input the following parameters: \n")
@@ -45,6 +68,21 @@ def parameterInputs ():
 
     return T0, CR, V, k , Qin, Cycle
 
+def isentropic(T_start, P_start, v_start, v_end, Vd, r, k, npts):
+    R = 0.287 #kJ/kg-k
+    v_vec = np.linspace(v_start, v_end, npts)
+    P_vec = P_start * (v_start/v_vec)**k
+    T_vec = T_start * (v_start/v_vec)**(k-1)
+
+    #work integral
+    P_end = P_vec[-1]
+    specific_work = (P_end * v_end - P_start * v_start)/(1-k)
+    V1_total = Vd/(1-(1/r))
+    mass = (P_start*V1_total)/(R*T_start) if v_start > v_end else (P_vec[0]*V1_total)/(R*T_vec[0])
+    m = (P_start*(v_start*mass/v_start))/(R*T_start) #placeholder
+
+    return T_vec, P_vec, v_vec, specific_work * mass
+
 def cycle(T1, P1, r, Vd, k, Q, cycle_type):
     R = 0.287 # kJ/kg-k
     cv = R/(k-1)
@@ -64,6 +102,7 @@ def cycle(T1, P1, r, Vd, k, Q, cycle_type):
         P3 = P2 * (T3/T2)
         v4 = v1
         T4 = T3*(1/r)**(k-1)
+        P4 = P3*(v3/v4)**k
     
     else:
         P3 = P2
@@ -72,12 +111,163 @@ def cycle(T1, P1, r, Vd, k, Q, cycle_type):
         rc = v3/v2 #cutoff ratio
         v4 = v1
         T4 = T3 * (rc/r)**(k-1)
+        P4 = P3*(v3/v4)**k
 
-    #Work and efficiency
+    #Work and efficiency calculated
     W_comp = m * cv * (T1-T2) #kJ
-    W_exp = m * cv * (T3-T4) if cycle_type == "otto" else m * (cp*(T3-T2)- cv*(T4-T1))
-    if cycle_type == "otto":
-        W_exp = m * cv *(T3-T4)
-    else:
-        W_exp = m *(cp*(T3-T2) - cv*(T4-T1) + (W_comp/m)) #Place holder
-            
+    Q_out = m * cv * (T4-T1) #kJ
+    W_net = (m * Q) - Q_out #kJ
+    W_exp = W_net - W_comp #kJ
+    eta = W_net/(m*Q)
+    torque = (W_net*1000)/(4*np.pi) #Nm
+
+    states = {
+        "st1":{"T": T1, "P": P1, "v": v1},
+        "st2":{"T": T2, "P": P2, "v": v2},
+        "st3":{"T": T3, "P": P3, "v": v3},
+        "st4":{"T": T4, "P": P4, "v": v4}
+    }
+    return abs(W_comp), W_exp, W_net, eta, torque, states
+
+#       ---main code---
+
+#Q1 constants
+T1_const = 15 + 273 #K
+P1_const = 90 #kPa
+Vd_const = 1.5/1000 #m^3
+Q_const = 1800 #kJ/kg
+k_const = 1.4
+
+T1_in, r_in, Vd_in, k_in, Q_in, cycle_in = parameterInputs()
+Wc_q1, We_q1, Wn_q1, et_q1, trq_q1, sts = cycle(T1_in, 90, r_in, Vd_in, k_in, Q_in, cycle_in)
+
+#Q3
+R_gas = 0.287
+m_total = (sts['st1']['P'] * (Vd_in/(1-(1/r_in))))/(R_gas * sts['st1']['T'])
+theta_comp = np.linspace(0, np.pi, 100)
+T_num_comp = odeint(engine_ode, sts['st1']['T'], theta_comp, args=(m_total, Vd_in, r_in, k_in, R_gas, L_rod, a_crank, 0))
+T2_ode = T_num_comp[-1][0]
+T2_analytical = sts['st2']['T']
+error = abs(T2_ode - T2_analytical)/T2_analytical*100
+
+print(f"\n Question 3")
+print(f"Analytical T2 (Q1): {T2_analytical:.4f} K")
+print(f"Numberical T2 (Q3): {T2_ode:.4f} K")
+print(f"Difference: {error:.2e} %")
+
+#isentropic path for q2
+#Compression from 1 -> 2
+T_c, P_c, v_c, W_c_int = isentropic(sts['st1']['T'], sts['st1']['P'], sts['st1']['v'], sts['st2']['v'], Vd_in, r_in, k_in, 100)
+#expansion from 3 -> 4
+T_e, P_e, v_e, W_e_int = isentropic(sts['st3']['T'], sts['st3']['P'], sts['st3']['v'], sts['st4']['v'], Vd_in, r_in, k_in, 100)
+
+cases = [(288.15, 90, 8), (288.15, 100, 8), (300.15, 90, 8), (288.15, 90, 10), (288.15, 90, 12), (310.15, 95, 9)]
+fig_q2, (ax_pv, ax_tv) = plt.subplots(1,2,figsize=(15,6))
+print(f"\n{'Case':<5} | {'Int W [kJ]':<12} | {'State W [kJ]':<12} | {'Error %':<8}")
+print("-" * 50)
+
+for i, (t1, p1, r) in enumerate(cases):
+    v1_c = (0.287*t1)/p1
+    v2_c = v1_c/r
+    T_v, P_v, v_v, W_int = isentropic(t1, p1, v1_c, v2_c, Vd_in, r, k_in, 100)
+
+    t2_s = t1*(r**(k_in-1))
+    m_s = (p1* (Vd_in/(1-(1/r))))/(0.287*t1)
+    W_state = m_s * (0.287/(k_in-1))*(t1-t2_s)
+
+    label = f"Case {i+1}: r={r}"
+    ax_pv.plot(v_v, P_v, label=label)
+    ax_tv.plot(v_v, T_v, label=label)
+    print(f"{i+1:<5} | {W_int:<12.4f} | {W_state:<12.4f} | {abs((W_int-W_state)/W_state)*100:<8.2e}")
+
+
+ax_pv.set_title("Q2 plot 1: P vs v (6 cases)"); ax_pv.set_ylabel("P [kPa]"); ax_pv.legend(); ax_pv.grid(True)
+ax_tv.set_title("Q2 plot 2: T vs v (6 cases)"); ax_tv.set_ylabel("T [K]"); ax_tv.legend(); ax_tv.grid(True)
+
+r_range = np.linspace(1.1, 20, 50)
+otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
+diesel_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "diesel") for r in r_range]
+
+fig1, axs = plt.subplots(2, 2, figsize=(12, 10))
+axs[0,0].plot(r_range, [d[2] for d in otto_results], 'r', label="Otto"); axs[0,0].plot(r_range, [d[2] for d in diesel_results], 'b', label="Diesel")
+axs[0,0].set_title("Net Work [kJ]"); axs[0,0].legend(); axs[0,0].grid(True)
+axs[0,1].plot(r_range, [d[3] for d in otto_results], 'r'); axs[0,1].plot(r_range, [d[3] for d in diesel_results], 'b')
+axs[0,1].set_title("Efficiency"); axs[0,1].grid(True)
+axs[1,0].plot(r_range, [d[4] for d in otto_results], 'r'); axs[1,0].plot(r_range, [d[4] for d in diesel_results], 'b')
+axs[1,0].set_title("Torque [Nm]"); axs[1,0].grid(True)
+axs[1,1].plot(r_range, [d[5]['st2']['T'] for d in otto_results], 'r', label="Otto"); axs[1,1].plot(r_range, [d[5]['st2']['T'] for d in diesel_results], 'b--', label="Diesel")
+axs[1,1].set_title("T2 [K]"); axs[1,1].legend(); axs[1,1].grid(True)
+plt.tight_layout()
+
+#plotting Q2 (p-v diagram)
+plt.figure(figsize=(10,6))
+plt.plot(v_c, P_c, 'b', label='Compression (Isentropic)')
+plt.plot(v_e, P_e, 'r', label='Expansion (Isentropic)')
+
+#p-v
+if cycle_in == 'otto':
+    plt.plot([sts['st2']['v'], sts['st3']['v']], [sts['st2']['P'], sts['st3']['P']], 'g', label='Combustion (v=const)')
+else:
+    plt.plot([sts['st2']['v'], sts['st3']['v']], [sts['st2']['P'], sts['st3']['P']], 'g', label='Combustion (P=const)')
+
+plt.plot([sts['st4']['v'], sts['st1']['v']], [sts['st4']['P'], sts['st1']['P']], 'k', label='Exhaust (v=const)')
+plt.title(f"P-v Diagram: {cycle_in.capitalize()} Cycle")
+plt.xlabel("Specific Volume [m^3/kg]"); plt.ylabel("Pressure [kPa]"); plt.legend(); plt.grid(True)
+plt.show()
+
+#plotting Q2 (t-v diagram)
+plt.figure(figsize=(10,6))
+plt.plot(v_c, T_c, 'b', label='Compression (Isentropic)')
+plt.plot(v_e, T_e, 'r', label='Expansion (Isentropic)')
+
+#t-v
+if cycle_in == 'otto':
+    plt.plot([sts['st2']['v'], sts['st3']['v']], [sts['st2']['T'], sts['st3']['T']], 'g', label='Combustion (v=const)')
+else:
+    plt.plot([sts['st2']['v'], sts['st3']['v']], [sts['st2']['T'], sts['st3']['T']], 'g', label='Combustion (P=const)')
+
+plt.plot([sts['st4']['v'], sts['st1']['v']], [sts['st4']['T'], sts['st1']['T']], 'k', label='Exhaust (v=const)')
+plt.title(f"Tt-v Diagram: {cycle_in.capitalize()} Cycle")
+plt.xlabel("Specific Volume [m^3/kg]"); plt.ylabel("Temperature [K]"); plt.legend(); plt.grid(True)
+plt.show()
+
+#printing table of main points
+print(f"\n {'State':<10} | {'Temp [K]':<10} | {'Pres [kPa]':<12} | {'Vol [m^3/kg]':<12}")
+print("-" * 55)
+
+for key in ['st1', 'st2', 'st3', 'st4']:
+    T = sts[key]['T']
+    P = sts[key]['P']
+    v = sts[key]['v']
+    print(f"{key:<10} | {T:<10.2f} | {P:<12.2f} | {v:<12.4f}")
+
+print(f"\n--- Results for {cycle_in.upper()} ---")
+print(f"Efficiency: {et:.2%}")
+print(f"Net Work: {Wn:.2f} kJ")
+print(f"Compression Work: {Wc:.2f} kJ")
+print(f"Expansion Work: {We:.2f} kJ")
+print(f"Torque: {trq:.2f} Nm")
+
+r_range = np.linspace(1.1, 20, 50)
+otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
+diesel_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "diesel") for r in r_range]
+
+fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+axs[0,0].plot(r_range, [d[2] for d in otto_results], 'r', label="Otto")
+axs[0,0].plot(r_range, [d[2] for d in diesel_results], 'b', label="Diesel")
+axs[0,0].set_title("Net Work [kJ]"); axs[0,0].legend()
+
+axs[0,1].plot(r_range, [d[3] for d in otto_results], 'r')
+axs[0,1].plot(r_range, [d[3] for d in diesel_results], 'b')
+axs[0,1].set_title("Efficiency")
+
+axs[1,0].plot(r_range, [d[4] for d in otto_results], 'r')
+axs[1,0].plot(r_range, [d[4] for d in diesel_results], 'b')
+axs[1,0].set_title("Torque [Nm]")
+
+axs[1,1].plot(r_range, [d[5]['st2']['T'] for d in otto_results], 'r')
+axs[1,1].plot(r_range, [d[5]['st2']['T'] for d in diesel_results], 'b')
+axs[1,1].set_title("T2 before combustion [K]") #Values are overlapping therefore graph only shows one
+
+for ax in axs.flat: ax.set_xlabel("Compression Ratio (r)"); ax.grid(True)
+plt.tight_layout(); plt.show()
