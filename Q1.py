@@ -2,8 +2,55 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.integrate import odeint
 
+R_gas = 0.287 #kJ/kg-K
 L_rod = 0.15 #Connection rod length assumption [m]
 a_crank = 0.045 # crank radius assumption [m]
+
+def full_cycle(T1, P1, Vd, r, k, Q, N, cycle_type):
+    cv = R_gas/(k-1)
+    cp = k * cv
+
+    #initial state
+    V1_total = Vd/(1-(1/r))
+    m = (P1*V1_total)/(R_gas*T1)
+
+    #compression (1->2)
+    theta_comp = np.linspace(np.pi, 0, 100)
+    T_comp = odeint(engine_ode, T1, theta_comp, args=(m, Vd, r, k, R_gas, L_rod, a_crank, 0))
+    T2 = T_comp[-1][0]
+
+    #heat addition (2->3)
+    if cycle_type == 'otto':
+        T3 = T2 + (Q/cv)
+        V3 = V1_total/r
+
+    else:
+        T3 = T2 + (Q/cp)
+        V3 = (m*R_gas*T3)/(P1 * (r**k)) #constant P @ v3
+
+    #expensaion (3->4)
+    v_ratio = V3/(V1_total/r)
+    r_exp = r/v_ratio
+    theta_exp = np.linspace(0, np.pi, 100)
+    T_exp = odeint(engine_ode, T3, theta_exp, args=(m, Vd, r_exp, k, R_gas, L_rod, a_crank, 0))
+    T4 = T_exp[-1][0]
+
+    #parameters
+    Qin_total = m * Q
+    Qout_total = m * cv * (T4-T1)
+    W_net = Qin_total - Qout_total
+    power = (W_net * N)/120 #kW for a 4 stroke
+    torque = (W_net * 1000)/(4 * np.pi) #Nm
+    eta = W_net/Qin_total
+    mep = W_net/Vd
+    spec_power = power/(np.pi * (0.124**2)/4 * 0.124 * 1000) #kW/L placeholder
+
+    return{
+        "power": power,
+        "torque": torque,
+        "efficiency": eta,
+        "mep": mep,
+    }
 
 def crank(theta, Vd, r, L, a):
     R=L/a
@@ -129,7 +176,51 @@ def cycle(T1, P1, r, Vd, k, Q, cycle_type):
     }
     return abs(W_comp), W_exp, W_net, eta, torque, states
 
-#       ---main code---
+
+#       ---MAIN CODE---
+
+#Q4
+
+#engine specs given
+Vd_liters = 1.5
+Vd_m3 = Vd_liters/1000
+Q_input = 1800
+T1_input = 15+273.15
+P1_input = 100
+k_input = 1.4
+
+rpm_range = np.linspace(1000, 6000, 50)
+
+#simulations
+otto_results = [full_cycle(T1_input, P1_input, Vd_m3, 10, k_input, Q_input, n, 'otto') for n in rpm_range]
+diesel_results = [full_cycle(T1_input, P1_input, Vd_m3, 20, k_input, Q_input, n, 'diesel') for n in rpm_range]
+
+#plotting
+fig, axs = plt.subplots(2,2,figsize=(12,10))
+
+#power plot
+axs[0,0].plot(rpm_range, [d['power'] for d in otto_results], 'r', label='Otto')
+axs[0,0].plot(rpm_range, [d['power'] for d in diesel_results], 'b', label='Diesel')
+axs[0,0].set_title("Power vs RPM"); axs[0,0].set_ylabel("Power [kW]"); axs[0,0].legend()
+
+#torque plt
+axs[0,1].plot(rpm_range, [d['torque'] for d in otto_results], 'r')
+axs[0,1].plot(rpm_range, [d['torque'] for d in diesel_results], 'b')
+axs[0,1].set_title("Torque vs RPM"); axs[0,1].set_ylabel("Torque [Nm]")
+
+#efficiency plot
+axs[1,0].plot(rpm_range, [d['efficiency'] for d in otto_results], 'r')
+axs[1,0].plot(rpm_range, [d['efficiency'] for d in diesel_results], 'b')
+axs[1,0].set_title("Thermal efficiency vs RPM"); axs[1,0].set_ylabel("Efficiency")
+axs[1,0].set_ylim(0,1)
+
+#mep plot
+axs[1,1].plot(rpm_range, [d['mep'] for d in otto_results], 'r')
+axs[1,1].plot(rpm_range, [d['mep'] for d in diesel_results], 'b')
+axs[1,1].set_title("MEP vs RPM"); axs[1,1].set_ylabel("Mep [kPa]")
+
+for ax in axs.flat: ax.set_xlabel("Engine speed [RPM]"); ax.grid(True)
+plt.tight_layout(); plt.show()
 
 #Q1 constants
 T1_const = 15 + 273 #K
@@ -143,17 +234,18 @@ Wc_q1, We_q1, Wn_q1, et_q1, trq_q1, sts = cycle(T1_in, 90, r_in, Vd_in, k_in, Q_
 
 #Q3
 R_gas = 0.287
-m_total = (sts['st1']['P'] * (Vd_in/(1-(1/r_in))))/(R_gas * sts['st1']['T'])
-theta_comp = np.linspace(0, np.pi, 100)
+V1_total = Vd_in/(1-(1/r_in))
+m_total = (sts['st1']['P'] * V1_total)/(R_gas*sts['st1']['T'])
+theta_comp = np.linspace(np.pi, 0, 100)     #starting at BDC and going to TDC (0)
 T_num_comp = odeint(engine_ode, sts['st1']['T'], theta_comp, args=(m_total, Vd_in, r_in, k_in, R_gas, L_rod, a_crank, 0))
 T2_ode = T_num_comp[-1][0]
 T2_analytical = sts['st2']['T']
-error = abs(T2_ode - T2_analytical)/T2_analytical*100
+error_q3 = abs(T2_ode - T2_analytical)/T2_analytical*100
 
 print(f"\n Question 3")
 print(f"Analytical T2 (Q1): {T2_analytical:.4f} K")
 print(f"Numberical T2 (Q3): {T2_ode:.4f} K")
-print(f"Difference: {error:.2e} %")
+print(f"Difference: {error_q3:.2e} %")
 
 #isentropic path for q2
 #Compression from 1 -> 2
@@ -166,7 +258,7 @@ fig_q2, (ax_pv, ax_tv) = plt.subplots(1,2,figsize=(15,6))
 print(f"\n{'Case':<5} | {'Int W [kJ]':<12} | {'State W [kJ]':<12} | {'Error %':<8}")
 print("-" * 50)
 
-for i, (t1, p1, r) in enumerate(cases):
+for i, (t1, p1, r) in enumerate(cases): #case comparison loop
     v1_c = (0.287*t1)/p1
     v2_c = v1_c/r
     T_v, P_v, v_v, W_int = isentropic(t1, p1, v1_c, v2_c, Vd_in, r, k_in, 100)
@@ -241,12 +333,13 @@ for key in ['st1', 'st2', 'st3', 'st4']:
     v = sts[key]['v']
     print(f"{key:<10} | {T:<10.2f} | {P:<12.2f} | {v:<12.4f}")
 
+#result printing
 print(f"\n--- Results for {cycle_in.upper()} ---")
-print(f"Efficiency: {et:.2%}")
-print(f"Net Work: {Wn:.2f} kJ")
-print(f"Compression Work: {Wc:.2f} kJ")
-print(f"Expansion Work: {We:.2f} kJ")
-print(f"Torque: {trq:.2f} Nm")
+print(f"Efficiency: {et_q1:.2%}")
+print(f"Net Work: {Wn_q1:.2f} kJ")
+print(f"Compression Work: {Wc_q1:.2f} kJ")
+print(f"Expansion Work: {We_q1:.2f} kJ")
+print(f"Torque: {trq_q1:.2f} Nm")
 
 r_range = np.linspace(1.1, 20, 50)
 otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
