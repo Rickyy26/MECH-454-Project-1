@@ -345,7 +345,7 @@ r_range = np.linspace(1.1, 20, 50)
 otto_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "otto") for r in r_range]
 diesel_results = [cycle(T1_const, P1_const, r, Vd_const, k_const, Q_const, "diesel") for r in r_range]
 
-fig, axs = plt.subplots(2, 2, figsize=(12, 10), num="Q1: Parametric comparison")
+fig, axs = plt.subplots(2, 2, figsize=(12, 10), num="Q1: 2nd Parametric comparison")
 axs[0,0].plot(r_range, [d[2] for d in otto_results], 'r', label="Otto")
 axs[0,0].plot(r_range, [d[2] for d in diesel_results], 'b', label="Diesel")
 axs[0,0].set_title("Net Work [kJ]"); axs[0,0].legend()
